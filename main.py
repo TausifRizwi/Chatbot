@@ -1,50 +1,75 @@
+# main.py (Streamlit interface)
+
 import streamlit as st
-from langchain.document_loaders import PyPDFLoader
-from langchain.text_splitter import RecursiveCharacterTextSplitter
-from langchain.embeddings import HuggingFaceEmbeddings
-from langchain.vectorstores import FAISS
+from subject_agent import SubjectAgent
 
-# Load and split documents
-@st.cache_resource
-def load_docs(path):
-    loader = PyPDFLoader(path)
-    pages = loader.load()
-    splitter = RecursiveCharacterTextSplitter(chunk_size=1000, chunk_overlap=100)
-    return splitter.split_documents(pages)
+def initialize_agents():
+    """
+    Initializes and returns a dictionary of SubjectAgent instances.
+    This function uses Streamlit's @st.cache_resource decorator to ensure
+    agents are initialized only once across app reruns.
+    """
+    # Use st.cache_resource to avoid re-initializing agents on every rerun
+    # This is crucial for performance in Streamlit apps.
+    if 'polity_agent' not in st.session_state:
+        st.session_state.polity_agent = SubjectAgent("Polity")
+    if 'history_agent' not in st.session_state:
+        st.session_state.history_agent = SubjectAgent("History")
+    if 'economics_agent' not in st.session_state:
+        st.session_state.economics_agent = SubjectAgent("Economics")
 
-# Create vectorstore from documents
-@st.cache_resource
-def create_vectorstore(_docs):
-    embedding_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-    return FAISS.from_documents(_docs, embedding_model)
+    return {
+        "Polity": st.session_state.polity_agent,
+        "History": st.session_state.history_agent,
+        "Economics": st.session_state.economics_agent
+    }
 
-def search_answer(vectorstore, query, top_k=3):
-    docs = vectorstore.similarity_search(query, k=top_k)
-    return "\n\n".join(doc.page_content for doc in docs)
-
-# Streamlit App
 def main():
-    st.title("📘 Constitution QA Bot ")
-    st.markdown("Ask a question, and get accurate, long answers from the actual PDF !")
+    """
+    Main function to run the multi-subject Q&A agent system with Streamlit.
+    """
+    st.set_page_config(page_title="Advanced Subject Q&A Agent", layout="centered")
 
-    if "chat_history" not in st.session_state:
-        st.session_state.chat_history = []
+    st.title("📚 Advanced Multi-Subject Q&A System")
+    st.markdown("Ask questions across different subjects! (Using internal knowledge bases)")
 
-    pdf_path = "Indian Constitution At Work.pdf"
-    docs = load_docs(pdf_path)
-    vectorstore = create_vectorstore(docs)
+    # Initialize agents (or retrieve them from cache)
+    agents = initialize_agents()
 
-    user_query = st.text_input(" Ask a question about the Constitution:")
+    # Sidebar for subject selection
+    st.sidebar.header("Select a Subject")
+    subject_names = list(agents.keys())
+    selected_subject = st.sidebar.radio("Choose a subject:", subject_names, key="subject_radio")
 
-    if user_query:
-        with st.spinner("Searching the book..."):
-            answer = search_answer(vectorstore, user_query)
-            st.session_state.chat_history.append(("You", user_query))
-            st.session_state.chat_history.append(("Bot", answer))
+    # Main content area for questions and answers
+    st.header(f"Question & Answer for {selected_subject}")
 
-    # Display chat history
-    for speaker, message in st.session_state.chat_history:
-        st.markdown(f"**{speaker}:** {message}")
+    # Text input for the question
+    question = st.text_input(f"Enter your question about {selected_subject}:", key="question_input")
+
+    # Button to submit the question
+    if st.button("Get Answer", key="get_answer_button"):
+        if question:
+            # Get the selected agent
+            current_agent = agents[selected_subject]
+
+            # Get the answer
+            answer = current_agent.answer_question(question)
+
+            # Display the answer
+            st.subheader("Answer:")
+            st.info(answer) # Using st.info for a nice blue box display
+        else:
+            st.warning("Please enter a question to get an answer.")
+
+    st.markdown("---")
+    st.markdown(
+        """
+        <small>This system combines exact Q&A pairs with keyword search within larger,
+        pre-defined textual content. It does not use external AI APIs for generation.</small>
+        """,
+        unsafe_allow_html=True
+    )
 
 if __name__ == "__main__":
     main()
